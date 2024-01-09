@@ -239,7 +239,7 @@ impl AccountInfo {
     /// - nonce is zero
     pub fn is_empty(&self) -> bool {
         let code_empty = self.is_empty_code_hash() || self.code_hash == B256::ZERO;
-        self.balance == U256::ZERO && self.nonce == 0 && code_empty
+        code_empty && self.balance == U256::ZERO && self.nonce == 0
     }
 
     /// Returns `true` if the account is not empty.
@@ -279,9 +279,7 @@ impl AccountInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::Account;
-    use crate::KECCAK_EMPTY;
-    use crate::U256;
+    use crate::{Account, KECCAK_EMPTY, U256};
 
     #[test]
     fn account_is_empty_balance() {

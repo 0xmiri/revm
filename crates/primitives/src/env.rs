@@ -3,6 +3,7 @@ use crate::{
     InvalidTransaction, Spec, SpecId, B256, GAS_PER_BLOB, KECCAK_EMPTY, MAX_BLOB_NUMBER_PER_BLOCK,
     MAX_INITCODE_SIZE, U256, VERSIONED_HASH_VERSION_KZG,
 };
+use alloc::boxed::Box;
 use core::cmp::{min, Ordering};
 
 /// EVM environment configuration.
@@ -74,10 +75,6 @@ impl Env {
             }
         }
 
-        let gas_limit = self.tx.gas_limit;
-        let effective_gas_price = self.effective_gas_price();
-        let is_create = self.tx.transact_to.is_create();
-
         // BASEFEE tx check
         if SPEC::enabled(SpecId::LONDON) {
             if let Some(priority_fee) = self.tx.gas_priority_fee {
@@ -86,28 +83,31 @@ impl Env {
                     return Err(InvalidTransaction::PriorityFeeGreaterThanMaxFee);
                 }
             }
-            let basefee = self.block.basefee;
 
             // check minimal cost against basefee
-            if !self.cfg.is_base_fee_check_disabled() && effective_gas_price < basefee {
+            if !self.cfg.is_base_fee_check_disabled()
+                && self.effective_gas_price() < self.block.basefee
+            {
                 return Err(InvalidTransaction::GasPriceLessThanBasefee);
             }
         }
 
         // Check if gas_limit is more than block_gas_limit
-        if !self.cfg.is_block_gas_limit_disabled() && U256::from(gas_limit) > self.block.gas_limit {
+        if !self.cfg.is_block_gas_limit_disabled()
+            && U256::from(self.tx.gas_limit) > self.block.gas_limit
+        {
             return Err(InvalidTransaction::CallerGasLimitMoreThanBlock);
         }
 
         // EIP-3860: Limit and meter initcode
-        if SPEC::enabled(SpecId::SHANGHAI) && is_create {
+        if SPEC::enabled(SpecId::SHANGHAI) && self.tx.transact_to.is_create() {
             let max_initcode_size = self
                 .cfg
                 .limit_contract_code_size
                 .map(|limit| limit.saturating_mul(2))
                 .unwrap_or(MAX_INITCODE_SIZE);
             if self.tx.data.len() > max_initcode_size {
-                return Err(InvalidTransaction::CreateInitcodeSizeLimit);
+                return Err(InvalidTransaction::CreateInitCodeSizeLimit);
             }
         }
 
@@ -135,7 +135,6 @@ impl Env {
                 }
 
                 // there must be at least one blob
-                // assert len(tx.blob_versioned_hashes) > 0
                 if self.tx.blob_hashes.is_empty() {
                     return Err(InvalidTransaction::EmptyBlobs);
                 }
@@ -227,8 +226,8 @@ impl Env {
                 account.info.balance = balance_check;
             } else {
                 return Err(InvalidTransaction::LackOfFundForMaxFee {
-                    fee: self.tx.gas_limit,
-                    balance: account.info.balance,
+                    fee: Box::new(balance_check),
+                    balance: Box::new(account.info.balance),
                 });
             }
         }
@@ -256,7 +255,7 @@ pub struct CfgEnv {
     /// If some it will effects EIP-170: Contract code size limit. Useful to increase this because of tests.
     /// By default it is 0x6000 (~25kb).
     pub limit_contract_code_size: Option<usize>,
-    /// A hard memory limit in bytes beyond which [Memory] cannot be resized.
+    /// A hard memory limit in bytes beyond which [crate::result::OutOfGasError::Memory] cannot be resized.
     ///
     /// In cases where the gas limit may be extraordinarily high, it is recommended to set this to
     /// a sane value to prevent memory allocation panics. Defaults to `2^32 - 1` bytes per
@@ -351,12 +350,12 @@ impl CfgEnv {
         false
     }
 
-    #[cfg(feaure = "optional_beneficiary_reward")]
+    #[cfg(feature = "optional_beneficiary_reward")]
     pub fn is_beneficiary_reward_disabled(&self) -> bool {
         self.disable_beneficiary_reward
     }
 
-    #[cfg(not(feaure = "optional_beneficiary_reward"))]
+    #[cfg(not(feature = "optional_beneficiary_reward"))]
     pub fn is_beneficiary_reward_disabled(&self) -> bool {
         false
     }
@@ -433,8 +432,8 @@ pub struct BlockEnv {
     /// [EIP-4399]: https://eips.ethereum.org/EIPS/eip-4399
     pub prevrandao: Option<B256>,
     /// Excess blob gas and blob gasprice.
-    /// See also [`calc_excess_blob_gas`](crate::calc_excess_blob_gas)
-    /// and [`calc_blob_gasprice`](crate::calc_blob_gasprice).
+    /// See also [`crate::calc_excess_blob_gas`]
+    /// and [`calc_blob_gasprice`].
     ///
     /// Incorporated as part of the Cancun upgrade via [EIP-4844].
     ///
@@ -444,7 +443,7 @@ pub struct BlockEnv {
 
 impl BlockEnv {
     /// Takes `blob_excess_gas` saves it inside env
-    /// and calculates `blob_fee` with [`BlobGasAndFee`].
+    /// and calculates `blob_fee` with [`BlobExcessGasAndPrice`].
     pub fn set_blob_excess_gas_and_price(&mut self, excess_blob_gas: u64) {
         self.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(excess_blob_gas));
     }

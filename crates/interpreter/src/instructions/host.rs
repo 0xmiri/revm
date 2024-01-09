@@ -1,11 +1,9 @@
-use crate::interpreter::InterpreterAction;
-use crate::primitives::{Address, Bytes, Spec, SpecId::*, B256, U256};
-use crate::MAX_INITCODE_SIZE;
 use crate::{
     gas::{self, COLD_ACCOUNT_ACCESS_COST, WARM_STORAGE_READ_COST},
-    interpreter::Interpreter,
+    interpreter::{Interpreter, InterpreterAction},
+    primitives::{Address, Bytes, Spec, SpecId::*, B256, U256},
     CallContext, CallInputs, CallScheme, CreateInputs, CreateScheme, Host, InstructionResult,
-    Transfer,
+    Transfer, MAX_INITCODE_SIZE,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::cmp::min;
@@ -260,7 +258,7 @@ pub fn create<const IS_CREATE2: bool, H: Host, SPEC: Spec>(
                 .map(|limit| limit.saturating_mul(2))
                 .unwrap_or(MAX_INITCODE_SIZE);
             if len > max_initcode_size {
-                interpreter.instruction_result = InstructionResult::CreateInitcodeSizeLimit;
+                interpreter.instruction_result = InstructionResult::CreateInitCodeSizeLimit;
                 return;
             }
             gas!(interpreter, gas::initcode_cost(len as u64));

@@ -66,15 +66,10 @@ impl<'a, SPEC: Spec, DB: Database> EVMImpl<'a, SPEC, DB> {
             .map_err(EVMError::Database)?
             .0;
         if l1_cost.gt(&acc.info.balance) {
-            let u64_cost = if U256::from(u64::MAX).lt(&l1_cost) {
-                u64::MAX
-            } else {
-                l1_cost.as_limbs()[0]
-            };
             return Err(EVMError::Transaction(
                 InvalidTransaction::LackOfFundForMaxFee {
-                    fee: u64_cost,
-                    balance: acc.info.balance,
+                    fee: Box::new(l1_cost),
+                    balance: Box::new(acc.info.balance),
                 },
             ));
         }
@@ -339,8 +334,7 @@ impl<'a, SPEC: Spec + 'static, DB: Database> EVMImpl<'a, SPEC, DB> {
         {
             Ok(new_frame) => Some(new_frame),
             Err(mut result) => {
-                //println!("Result returned right away: {:#?}", result);
-                if let Some(inspector) = self.inspector.as_mut() {
+                if let Some(inspector) = &mut self.inspector {
                     result = inspector.call_end(&mut self.context, result);
                 }
                 curent_stake_frame.interpreter.insert_call_output(
@@ -697,6 +691,8 @@ pub fn new_evm<'a, DB: Database>(
         SpecId::BEDROCK => create_evm!(BedrockSpec),
         #[cfg(feature = "optimism")]
         SpecId::REGOLITH => create_evm!(RegolithSpec),
+        #[cfg(feature = "optimism")]
+        SpecId::CANYON => create_evm!(CanyonSpec),
     }
 }
 
@@ -827,8 +823,8 @@ mod tests {
             ),
             Err(EVMError::Transaction(
                 InvalidTransaction::LackOfFundForMaxFee {
-                    fee: 101u64,
-                    balance: U256::from(100),
+                    fee: Box::new(U256::from(101)),
+                    balance: Box::new(U256::from(100)),
                 },
             ))
         );

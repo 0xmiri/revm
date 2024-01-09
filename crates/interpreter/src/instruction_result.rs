@@ -1,10 +1,11 @@
-use crate::primitives::{Eval, Halt};
+use crate::primitives::{Eval, Halt, OutOfGasError};
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum InstructionResult {
     // success codes
+    #[default]
     Continue = 0x00,
     Stop,
     Return,
@@ -42,10 +43,96 @@ pub enum InstructionResult {
     /// Error on created contract that begins with EF
     CreateContractStartingWithEF,
     /// EIP-3860: Limit and meter initcode. Initcode size limit exceeded.
-    CreateInitcodeSizeLimit,
+    CreateInitCodeSizeLimit,
 
     /// Fatal external error. Returned by database.
     FatalExternalError,
+}
+
+impl From<Eval> for InstructionResult {
+    fn from(value: Eval) -> Self {
+        match value {
+            Eval::Return => InstructionResult::Return,
+            Eval::Stop => InstructionResult::Stop,
+            Eval::SelfDestruct => InstructionResult::SelfDestruct,
+        }
+    }
+}
+
+impl From<Halt> for InstructionResult {
+    fn from(value: Halt) -> Self {
+        match value {
+            Halt::OutOfGas(OutOfGasError::BasicOutOfGas) => Self::OutOfGas,
+            Halt::OutOfGas(OutOfGasError::InvalidOperand) => Self::InvalidOperandOOG,
+            Halt::OutOfGas(OutOfGasError::Memory) => Self::MemoryOOG,
+            Halt::OutOfGas(OutOfGasError::MemoryLimit) => Self::MemoryLimitOOG,
+            Halt::OutOfGas(OutOfGasError::Precompile) => Self::PrecompileOOG,
+            Halt::OpcodeNotFound => Self::OpcodeNotFound,
+            Halt::InvalidFEOpcode => Self::InvalidFEOpcode,
+            Halt::InvalidJump => Self::InvalidJump,
+            Halt::NotActivated => Self::NotActivated,
+            Halt::StackOverflow => Self::StackOverflow,
+            Halt::StackUnderflow => Self::StackUnderflow,
+            Halt::OutOfOffset => Self::OutOfOffset,
+            Halt::CreateCollision => Self::CreateCollision,
+            Halt::PrecompileError => Self::PrecompileError,
+            Halt::NonceOverflow => Self::NonceOverflow,
+            Halt::CreateContractSizeLimit => Self::CreateContractSizeLimit,
+            Halt::CreateContractStartingWithEF => Self::CreateContractStartingWithEF,
+            Halt::CreateInitCodeSizeLimit => Self::CreateInitCodeSizeLimit,
+            Halt::OverflowPayment => Self::OverflowPayment,
+            Halt::StateChangeDuringStaticCall => Self::StateChangeDuringStaticCall,
+            Halt::CallNotAllowedInsideStatic => Self::CallNotAllowedInsideStatic,
+            Halt::OutOfFund => Self::OutOfFund,
+            Halt::CallTooDeep => Self::CallTooDeep,
+            #[cfg(feature = "optimism")]
+            Halt::FailedDeposit => Self::FatalExternalError,
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! return_ok {
+    () => {
+        InstructionResult::Continue
+            | InstructionResult::Stop
+            | InstructionResult::Return
+            | InstructionResult::SelfDestruct
+    };
+}
+
+#[macro_export]
+macro_rules! return_revert {
+    () => {
+        InstructionResult::Revert | InstructionResult::CallTooDeep | InstructionResult::OutOfFund
+    };
+}
+
+macro_rules! return_error {
+    () => {
+        InstructionResult::OutOfGas
+            | InstructionResult::MemoryOOG
+            | InstructionResult::MemoryLimitOOG
+            | InstructionResult::PrecompileOOG
+            | InstructionResult::InvalidOperandOOG
+            | InstructionResult::OpcodeNotFound
+            | InstructionResult::CallNotAllowedInsideStatic
+            | InstructionResult::StateChangeDuringStaticCall
+            | InstructionResult::InvalidFEOpcode
+            | InstructionResult::InvalidJump
+            | InstructionResult::NotActivated
+            | InstructionResult::StackUnderflow
+            | InstructionResult::StackOverflow
+            | InstructionResult::OutOfOffset
+            | InstructionResult::CreateCollision
+            | InstructionResult::OverflowPayment
+            | InstructionResult::PrecompileError
+            | InstructionResult::NonceOverflow
+            | InstructionResult::CreateContractSizeLimit
+            | InstructionResult::CreateContractStartingWithEF
+            | InstructionResult::CreateInitCodeSizeLimit
+            | InstructionResult::FatalExternalError
+    };
 }
 
 impl InstructionResult {
@@ -64,31 +151,7 @@ impl InstructionResult {
     /// Returns whether the result is an error.
     #[inline]
     pub fn is_error(self) -> bool {
-        matches!(
-            self,
-            Self::OutOfGas
-                | Self::MemoryOOG
-                | Self::MemoryLimitOOG
-                | Self::PrecompileOOG
-                | Self::InvalidOperandOOG
-                | Self::OpcodeNotFound
-                | Self::CallNotAllowedInsideStatic
-                | Self::StateChangeDuringStaticCall
-                | Self::InvalidFEOpcode
-                | Self::InvalidJump
-                | Self::NotActivated
-                | Self::StackUnderflow
-                | Self::StackOverflow
-                | Self::OutOfOffset
-                | Self::CreateCollision
-                | Self::OverflowPayment
-                | Self::PrecompileError
-                | Self::NonceOverflow
-                | Self::CreateContractSizeLimit
-                | Self::CreateContractStartingWithEF
-                | Self::CreateInitcodeSizeLimit
-                | Self::FatalExternalError
-        )
+        matches!(self, return_error!())
     }
 }
 
@@ -189,25 +252,83 @@ impl From<InstructionResult> for SuccessOrHalt {
             InstructionResult::CreateContractStartingWithEF => {
                 Self::Halt(Halt::CreateContractSizeLimit)
             }
-            InstructionResult::CreateInitcodeSizeLimit => Self::Halt(Halt::CreateInitcodeSizeLimit),
+            InstructionResult::CreateInitCodeSizeLimit => Self::Halt(Halt::CreateInitCodeSizeLimit),
             InstructionResult::FatalExternalError => Self::FatalExternalError,
         }
     }
 }
 
-#[macro_export]
-macro_rules! return_ok {
-    () => {
-        InstructionResult::Continue
-            | InstructionResult::Stop
-            | InstructionResult::Return
-            | InstructionResult::SelfDestruct
-    };
-}
+#[cfg(test)]
+mod tests {
+    use crate::InstructionResult;
 
-#[macro_export]
-macro_rules! return_revert {
-    () => {
-        InstructionResult::Revert | InstructionResult::CallTooDeep | InstructionResult::OutOfFund
-    };
+    #[test]
+    fn all_results_are_covered() {
+        let result = InstructionResult::Continue;
+        match result {
+            return_error!() => {}
+            return_revert!() => (),
+            return_ok!() => {}
+            InstructionResult::CallOrCreate => (),
+        }
+    }
+
+    #[test]
+    fn test_results() {
+        let ok_results = vec![
+            InstructionResult::Continue,
+            InstructionResult::Stop,
+            InstructionResult::Return,
+            InstructionResult::SelfDestruct,
+        ];
+
+        for result in ok_results {
+            assert!(result.is_ok());
+            assert!(!result.is_revert());
+            assert!(!result.is_error());
+        }
+
+        let revert_results = vec![
+            InstructionResult::Revert,
+            InstructionResult::CallTooDeep,
+            InstructionResult::OutOfFund,
+        ];
+
+        for result in revert_results {
+            assert!(!result.is_ok());
+            assert!(result.is_revert());
+            assert!(!result.is_error());
+        }
+
+        let error_results = vec![
+            InstructionResult::OutOfGas,
+            InstructionResult::MemoryOOG,
+            InstructionResult::MemoryLimitOOG,
+            InstructionResult::PrecompileOOG,
+            InstructionResult::InvalidOperandOOG,
+            InstructionResult::OpcodeNotFound,
+            InstructionResult::CallNotAllowedInsideStatic,
+            InstructionResult::StateChangeDuringStaticCall,
+            InstructionResult::InvalidFEOpcode,
+            InstructionResult::InvalidJump,
+            InstructionResult::NotActivated,
+            InstructionResult::StackUnderflow,
+            InstructionResult::StackOverflow,
+            InstructionResult::OutOfOffset,
+            InstructionResult::CreateCollision,
+            InstructionResult::OverflowPayment,
+            InstructionResult::PrecompileError,
+            InstructionResult::NonceOverflow,
+            InstructionResult::CreateContractSizeLimit,
+            InstructionResult::CreateContractStartingWithEF,
+            InstructionResult::CreateInitCodeSizeLimit,
+            InstructionResult::FatalExternalError,
+        ];
+
+        for result in error_results {
+            assert!(!result.is_ok());
+            assert!(!result.is_revert());
+            assert!(result.is_error());
+        }
+    }
 }

@@ -1,4 +1,6 @@
-#![warn(unreachable_pub)]
+#![doc = include_str!("../../../README.md")]
+#![warn(rustdoc::all, unreachable_pub)]
+#![allow(rustdoc::bare_urls)]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![deny(unused_must_use, rust_2018_idioms)]
@@ -9,6 +11,9 @@ compile_error!("`with-serde` feature has been renamed to `serde`.");
 
 #[macro_use]
 extern crate alloc;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 pub mod db;
 mod evm;
@@ -47,8 +52,7 @@ pub use revm_interpreter as interpreter;
 pub use revm_interpreter::primitives;
 
 // reexport inspector implementations
-pub use inspector::inspectors;
-pub use inspector::{inspector_instruction, Inspector};
+pub use inspector::{inspector_instruction, inspectors, Inspector};
 
 // export Optimism types, helpers, and constants
 #[cfg(feature = "optimism")]
